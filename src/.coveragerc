@@ -1,0 +1,47 @@
+[run]
+branch = True
+parallel = True
+concurrency = multiprocessing
+
+plugins =
+    django_coverage_plugin
+
+# Omit these from coverage requirements
+omit = 
+    # Testing stuff
+    */tests.py
+    */tests/*
+
+    # Django project stuff
+    manage.py
+    hagrid/*
+    */migrations/*
+    populate_db.py
+
+    # Virtual environments
+    */venv/*
+
+    # html report
+    htmlcov/*
+
+    # tools
+    tools/*
+
+    # core stuff
+    core/*
+
+    # static files
+    database/static/*
+    static/*
+
+    # Skip HTML (for now)
+    *.html
+
+source =
+    .
+
+[report]
+exclude_lines =
+    __str__
+    __unicode__
+    # pragma: no cover

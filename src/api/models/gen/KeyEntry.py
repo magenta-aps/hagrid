@@ -5,9 +5,6 @@ import base64
 
 from django.utils.crypto import get_random_string
 
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import padding
-
 from api.models import KeyEntry
 from api.models import Password
 from api.models import PublicKey
@@ -17,43 +14,6 @@ from api.models.gen import gen_group
 from api.models.gen import gen_public_key
 from api.models.gen import gen_key_pair
 from api.models.gen import stringify_public_key
-
-
-
-def encrypt(public_key, message):
-    cipher = public_key.encrypt(
-        message,
-        padding.OAEP(
-            mgf=padding.MGF1(algorithm=hashes.SHA256()),
-            algorithm=hashes.SHA256(),
-            label=None
-        )
-    )
-    return cipher
-
-
-def decrypt(private_key, ciphertext):
-    plain = private_key.decrypt(
-        ciphertext,
-        padding.OAEP(
-            mgf=padding.MGF1(algorithm=hashes.SHA256()),
-            algorithm=hashes.SHA256(),
-            label=None
-        )
-    )
-    return plain
-
-
-def sign(private_key, message):
-    signature = private_key.sign(
-        message,
-        padding.PSS(
-            mgf=padding.MGF1(hashes.SHA256()),
-            salt_length=padding.PSS.MAX_LENGTH
-        ),
-        hashes.SHA256()
-    )
-    return signature
 
 
 def gen_key_entry(owner=None):

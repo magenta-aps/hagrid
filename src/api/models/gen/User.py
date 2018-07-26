@@ -8,11 +8,14 @@ from django.utils.crypto import get_random_string
 from api.models.gen import util
 
 
+default_password = 'hagrid'
+
+
 def gen_user(boy=None, password=None):
     """Generate a randomized user account."""
     username = get_random_string(10, util.CHARACTERS)
     if password is None:
-        password = "hagrid"
+        password = default_password
 
     user = get_user_model()(
         username=username,

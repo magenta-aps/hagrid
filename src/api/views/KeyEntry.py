@@ -2,12 +2,14 @@
 # pylint: disable=W9903
 # TODO: Do translations wherever required.
 from __future__ import unicode_literals
+from base64 import b64decode
 
 from django.forms import widgets
 from django.db.models import Q
 from django.core.exceptions import ValidationError
 from django.utils.translation import ugettext as _
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.db import transaction
 
 from rest_framework import serializers
@@ -17,8 +19,11 @@ from rest_framework import mixins
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
 
-from api.models import KeyEntry
-from api.models import Password
+from api.models import (
+    KeyEntry,
+    Password,
+    PublicKey
+)
 from api.views.Password import PasswordSerializer
 
 
@@ -29,6 +34,10 @@ class KeyEntrySerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = KeyEntry
         fields = ('__all__')
+
+    owner = serializers.PrimaryKeyRelatedField(
+        queryset=Group.objects.all()
+    )
 
     passwords = PasswordSerializer(
         read_only=True,
@@ -42,69 +51,96 @@ class KeyEntrySerializer(serializers.HyperlinkedModelSerializer):
         write_only=True,
     )
 
-    def validate(self, data):
-        # TODO: Lookup using permission system, or something like that
-        # List of users who needs this password
-#        users = [
-#            user, get_user_model().objects.get(pk=3)
-#        ]
-        users = get_user_model().objects.filter(public_keys__isnull=False)
-        users_set = set([x.pk for x in users])
-        passwords = data['passwords_write']
-        passwords_keyset = set([int(x['user_pk']) for x in passwords])
+    signing_key = serializers.PrimaryKeyRelatedField(
+        queryset=PublicKey.objects.all(),
+        write_only=True
+    )
 
-        if users_set != passwords_keyset:
-            extra = passwords_keyset - users_set
-            missing = users_set - passwords_keyset
+    def validate(self, data):
+        # Get the provided group
+        group = data['owner']
+        if not isinstance(group, Group):
+            group = Group.objects.get(pk=int(group_pk))
+        # Get all users we expect passwords provided for; i.e. all users in the
+        # provided group and our master user
+        from api.models.util import get_master_user
+        users = get_user_model().objects.filter(
+            Q(groups=group) | Q(pk=get_master_user().pk)
+        )
+        # Get all public keys corresponding to these users, these are the keys
+        # we expect the passwords to be provided under
+        public_keys = PublicKey.objects.filter(
+            user__in=users
+        )
+
+        # List a public key pks to compare to the provided pks
+        keyset = set(public_keys.values_list('pk', flat=True))
+        passwords = data['passwords_write']
+        passwords_keyset = set([int(x['key_pk']) for x in passwords])
+        # Error if we have to many or too few entries
+        if keyset != passwords_keyset:
+            extra = passwords_keyset - keyset
+            missing = keyset - passwords_keyset
             raise ValidationError(
                 _("Request did not contain required passwords. " + 
-                  "Extra passwords: " + str(list(extra)) + " "
-                  "Missing passwords: " + str(list(missing))
+                  "Extra keys: " + str(list(extra)) + " "
+                  "Missing keys: " + str(list(missing))
                 )
             )
 
-        # TODO: Check password signatures
-        # Load uploaders public key
+        # Get key used to sign the passwords
+        signing_key = data['signing_key']
+        if not isinstance(signing_key, PublicKey):
+            signing_key = PublicKey.objects.get(pk=int(signing_key))
+        # Error if the current user isn't the holder of that key
+        user = self.context['request'].user
+        if signing_key.user != user:
+            raise ValidationError(
+                _("Signing key does not belong to current user.")
+            )
 
-        user =  self.context['request'].user
-        public_key = user.public_key.first().as_key()
-
+        # Check each entry in the provided passwords
         for dicty in passwords:
-            user_pk = int(dicty['user_pk'])
-            encoded_password = dicty['password']
-            encoded_signature = dicty['signature']
-
-            if user_pk not in users_set:
+            # Check that all members are present
+            try:
+                key_pk = int(dicty['key_pk'])
+                encoded_password = dicty['password']
+                encoded_signature = dicty['signature']
+            except KeyError as error:
                 raise ValidationError(
-                    _("Some users could not be looked up.")
+                    _("'passwords_write' dict(s) missing content: " + str(error))
                 )
-
-            password = Password(
-                key_entry=keyentry,
-                public_key=key,
-                password=encoded_password,
-                signature=encoded_signature,
-                signing_key = public_key
-            )
-            password.full_clean()
+            
+            # Check that the key was expected
+            if key_pk not in keyset:
+                raise ValidationError(
+                    _("Primary key not in expected keyset.")
+                )
 
         return data
 
     def create(self, validated_data):
         passwords = validated_data['passwords_write']
+        signing_key = validated_data['signing_key']
         del validated_data['passwords_write']
+        del validated_data['signing_key']
         del validated_data['user']
         with transaction.atomic(savepoint=True):
             keyentry = KeyEntry.objects.create(**validated_data)
 
             for dicty in passwords:
-                user_pk = dicty['user_pk']
-                password = dicty['password']
-                Password.objects.create(
+                key_pk = int(dicty['key_pk'])
+                encoded_password = dicty['password']
+                encoded_signature = dicty['signature']
+                password_object = Password(
                     key_entry=keyentry,
-                    user=get_user_model().objects.get(pk=user_pk),
-                    password=password
+                    public_key=PublicKey.objects.get(pk=key_pk),
+                    password=encoded_password,
+                    signature=encoded_signature,
+                    signing_key=signing_key,
                 )
+                password_object.full_clean()
+                password_object.save()
 
             return keyentry
 

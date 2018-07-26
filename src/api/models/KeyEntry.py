@@ -27,24 +27,23 @@ class KeyEntry(models.Model):
         related_name="key_entries",
         on_delete=models.PROTECT
     )
-    """
+    """Group of users who has access to this key entry / service.
+
+    Each of these users will have a password entry kept up to date for each of
+    their public keys (by invariant).
     """
 
     title = models.CharField(max_length=util.MAX_LENGTH_NUMBER, blank=True)
-    """
-    """
+    """Free-text decription or title of this key entry / service."""
 
     username = models.CharField(max_length=util.MAX_LENGTH_NUMBER, blank=True)
-    """
-    """
+    """Plain text username for login at this key entry / service."""
 
     url = models.CharField(max_length=util.MAX_LENGTH_NUMBER, blank=True)
-    """
-    """
+    """Plain text url for login to this key entry / service."""
 
     notes = models.CharField(max_length=util.MAX_LENGTH_NUMBER, blank=True)
-    """
-    """
+    """Free-text notes about this key entry / service."""
 
     def __str__(self):
         return (self.title + " for " + self.username + " @ " + self.url)

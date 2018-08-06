@@ -24,7 +24,7 @@ def gen_key_entry(owner=None):
     bird = random.choice(util.BIRDS)  
     title = "Login til " + bird + " systemet"
     username = get_random_string(10, util.CHARACTERS)
-    url = 'magenta.dk'
+    url = 'www.' + username + '.dk'
     # Generate the *real* password
     raw_password = str(get_random_string(10, util.CHARACTERS))
     notes = 'The password is: ' + raw_password

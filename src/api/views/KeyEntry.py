@@ -25,6 +25,7 @@ from api.models import (
     PublicKey
 )
 from api.views.Password import PasswordSerializer
+from api.models.util import get_lock
 
 
 # Serializers define the API representation.
@@ -34,6 +35,10 @@ class KeyEntrySerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = KeyEntry
         fields = ('__all__')
+
+    pk = serializers.PrimaryKeyRelatedField(
+        read_only=True,
+    )
 
     owner = serializers.PrimaryKeyRelatedField(
         queryset=Group.objects.all()
@@ -56,11 +61,7 @@ class KeyEntrySerializer(serializers.HyperlinkedModelSerializer):
         write_only=True
     )
 
-    def validate(self, data):
-        # Get the provided group
-        group = data['owner']
-        if not isinstance(group, Group):
-            group = Group.objects.get(pk=int(group_pk))
+    def check_password_dict(self, group, password_write):
         # Get all users we expect passwords provided for; i.e. all users in the
         # provided group and our master user
         from api.models.util import get_master_user
@@ -75,7 +76,7 @@ class KeyEntrySerializer(serializers.HyperlinkedModelSerializer):
 
         # List a public key pks to compare to the provided pks
         keyset = set(public_keys.values_list('pk', flat=True))
-        passwords = data['passwords_write']
+        passwords = password_write
         passwords_keyset = set([int(x['key_pk']) for x in passwords])
         # Error if we have to many or too few entries
         if keyset != passwords_keyset:
@@ -87,11 +88,28 @@ class KeyEntrySerializer(serializers.HyperlinkedModelSerializer):
                   "Missing keys: " + str(list(missing))
                 )
             )
+        return keyset
 
-        # Get key used to sign the passwords
-        signing_key = data['signing_key']
-        if not isinstance(signing_key, PublicKey):
-            signing_key = PublicKey.objects.get(pk=int(signing_key))
+    def check_password_dict_entry(self, entry, keyset):
+        # Check that all members are present
+        try:
+            key_pk = int(entry['key_pk'])
+            encoded_password = entry['password']
+            encoded_signature = entry['signature']
+        except KeyError as error:
+            raise ValidationError(
+                _("'passwords_write' dict(s) missing content: " + str(error))
+            )
+
+        # Check that the key was expected
+        if key_pk not in keyset:
+            raise ValidationError(
+                _("Primary key not in expected keyset.")
+            )
+
+        return key_pk, encoded_password, encoded_signature
+
+    def check_signing_key(self, signing_key):
         # Error if the current user isn't the holder of that key
         user = self.context['request'].user
         if signing_key.user != user:
@@ -99,39 +117,24 @@ class KeyEntrySerializer(serializers.HyperlinkedModelSerializer):
                 _("Signing key does not belong to current user.")
             )
 
-        # Check each entry in the provided passwords
-        for dicty in passwords:
-            # Check that all members are present
-            try:
-                key_pk = int(dicty['key_pk'])
-                encoded_password = dicty['password']
-                encoded_signature = dicty['signature']
-            except KeyError as error:
-                raise ValidationError(
-                    _("'passwords_write' dict(s) missing content: " + str(error))
-                )
-            
-            # Check that the key was expected
-            if key_pk not in keyset:
-                raise ValidationError(
-                    _("Primary key not in expected keyset.")
-                )
-
-        return data
-
     def create(self, validated_data):
+        owner = validated_data['owner']
         passwords = validated_data['passwords_write']
         signing_key = validated_data['signing_key']
         del validated_data['passwords_write']
         del validated_data['signing_key']
         del validated_data['user']
         with transaction.atomic(savepoint=True):
+            # Acquire lock on master key user
+            lock = get_lock()
+            # Validate our password dict looks good
+            keyset = self.check_password_dict(owner, passwords)
+            self.check_signing_key(signing_key)
+            # Create our key entry object
             keyentry = KeyEntry.objects.create(**validated_data)
+            for entry in passwords:
+                key_pk, encoded_password, encoded_signature = self.check_password_dict_entry(entry, keyset)
 
-            for dicty in passwords:
-                key_pk = int(dicty['key_pk'])
-                encoded_password = dicty['password']
-                encoded_signature = dicty['signature']
                 password_object = Password(
                     key_entry=keyentry,
                     public_key=PublicKey.objects.get(pk=key_pk),
@@ -142,12 +145,42 @@ class KeyEntrySerializer(serializers.HyperlinkedModelSerializer):
                 password_object.full_clean()
                 password_object.save()
 
+            keyentry.check_passwords()
+
+            return keyentry
+
+    def update(self, instance, validated_data):
+        owner = instance.owner
+        passwords = validated_data['passwords_write']
+        signing_key = validated_data['signing_key']
+        with transaction.atomic(savepoint=True):
+            # Acquire lock on master key user
+            lock = get_lock()
+            # Validate our password dict looks good
+            keyset = self.check_password_dict(owner, passwords)
+            self.check_signing_key(signing_key)
+            # Get our key entry object
+            keyentry = instance
+            for entry in passwords:
+                key_pk, encoded_password, encoded_signature = self.check_password_dict_entry(entry, keyset)
+                # Get the corresponding password entry
+                password_object = keyentry.passwords.get(
+                    public_key=PublicKey.objects.get(pk=key_pk)
+                )
+                password_object.password=encoded_password
+                password_object.signature=encoded_signature
+                password_object.signing_key=signing_key
+                password_object.full_clean()
+                password_object.save()
+            keyentry.check_passwords()
+
             return keyentry
 
 
 # ViewSets define the view behavior.
 class KeyEntryViewSet(mixins.CreateModelMixin,
                       mixins.RetrieveModelMixin,
+                      mixins.UpdateModelMixin,
                       mixins.ListModelMixin,
                       mixins.DestroyModelMixin,
                       viewsets.GenericViewSet):
@@ -168,7 +201,7 @@ class KeyEntryViewSet(mixins.CreateModelMixin,
             return KeyEntry.objects.all()
         # If user, only show our own passwords
         return KeyEntry.objects.filter(
-            Q(passwords__user__pk=user.pk)
+            Q(passwords__public_key__user=user)
         )
 
     def get_queryset(self):

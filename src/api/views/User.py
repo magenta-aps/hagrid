@@ -15,6 +15,10 @@ class UserSerializer(serializers.HyperlinkedModelSerializer):
         model = get_user_model()
         fields = '__all__'
 
+    pk = serializers.PrimaryKeyRelatedField(
+        read_only=True,
+    )
+
 
 # ViewSets define the view behavior.
 class UserViewSet(viewsets.ReadOnlyModelViewSet):

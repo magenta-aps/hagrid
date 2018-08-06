@@ -90,10 +90,10 @@ class KeyEntryCreationTest(APITestCase):
             'signing_key': self.user_key_object.pk,
             # Variables passed directly to KeyEntry
             'owner': self.group.pk,
-            'title': 'Bank',
-            'username': 'MrRich',
-            'url': 'www.bank.com',
-            'notes': 'Nothing to see here!',
+            'title': 'Gringotts',
+            'username': 'Harry',
+            'url': 'www.thiefs.downfall',
+            'notes': 'Fortius Quo Fidelius',
         })
         self.assertEqual(response.status_code, 201)
         self.assertEqual(KeyEntry.objects.count(), 1)
@@ -101,14 +101,63 @@ class KeyEntryCreationTest(APITestCase):
         self.assertEqual(self.user_key_object.passwords.count(), 1)
         self.assertEqual(self.master_key_object.passwords.count(), 1)
 
-        self.assertEqual(response.data['title'], 'Bank')
-        self.assertEqual(response.data['username'], 'MrRich')
-        self.assertEqual(response.data['url'], 'www.bank.com')
-        self.assertEqual(response.data['notes'], 'Nothing to see here!')
+        self.assertEqual(response.data['title'], 'Gringotts')
+        self.assertEqual(response.data['username'], 'Harry')
+        self.assertEqual(response.data['url'], 'www.thiefs.downfall')
+        self.assertEqual(response.data['notes'], 'Fortius Quo Fidelius')
 
         key_entry = KeyEntry.objects.first()
         self.assertEqual(key_entry.owner, self.group)
-        self.assertEqual(key_entry.title, 'Bank')
-        self.assertEqual(key_entry.username, 'MrRich')
-        self.assertEqual(key_entry.url, 'www.bank.com')
-        self.assertEqual(key_entry.notes, 'Nothing to see here!')
+        self.assertEqual(key_entry.title, 'Gringotts')
+        self.assertEqual(key_entry.username, 'Harry')
+        self.assertEqual(key_entry.url, 'www.thiefs.downfall')
+        self.assertEqual(key_entry.notes, 'Fortius Quo Fidelius')
+
+    def test_entry_update(self):
+        self.test_entry_creation()
+        new_password = str('password1')
+
+        key_entry = KeyEntry.objects.first()
+        detail_url = reverse('keyentry-detail', args=[key_entry.pk])
+
+        master_password_encrypted = encrypt(self.master_key_object.as_key(), new_password)
+        master_signature = sign(self.user_private_key, master_password_encrypted)
+        master_password_encoded = b64encode(master_password_encrypted)
+        master_signature_encoded = b64encode(master_signature)
+
+        user_password_encrypted = encrypt(self.user_key_object.as_key(), new_password)
+        user_signature = sign(self.user_private_key, user_password_encrypted)
+        user_password_encoded = b64encode(user_password_encrypted)
+        user_signature_encoded = b64encode(user_signature)
+
+        self.assertEqual(KeyEntry.objects.count(), 1)
+        self.assertEqual(Password.objects.count(), 2)
+        self.assertEqual(self.user_key_object.passwords.count(), 1)
+        self.assertEqual(self.master_key_object.passwords.count(), 1)
+        old_password = self.user_key_object.passwords.first().password
+
+        response = self.client.patch(detail_url, {
+            # Write-only fields (for creating password entries)
+            'passwords_write': [
+                # The master key user (always included)
+                {
+                    'key_pk': self.master_key_object.pk,
+                    'password': master_password_encoded,
+                    'signature': master_signature_encoded,
+                },
+                # The user in the group (us)
+                {
+                    'key_pk': self.user_key_object.pk,
+                    'password': user_password_encoded,
+                    'signature': user_signature_encoded,
+                },
+            ],
+            'signing_key': self.user_key_object.pk,
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(KeyEntry.objects.count(), 1)
+        self.assertEqual(Password.objects.count(), 2)
+        self.assertEqual(self.user_key_object.passwords.count(), 1)
+        self.assertEqual(self.master_key_object.passwords.count(), 1)
+
+        self.assertNotEqual(self.user_key_object.passwords.first().password, old_password)

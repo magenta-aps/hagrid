@@ -26,7 +26,14 @@ class PublicKeySerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = PublicKey
         fields = ('__all__')
-        read_only_fields = ('user',)
+
+    pk = serializers.PrimaryKeyRelatedField(
+        read_only=True,
+    )
+
+    user = serializers.PrimaryKeyRelatedField(
+        read_only=True,
+    )
 
     def validate_key(self, value):
         """Ensure that only valid ssh public keys can be uploaded."""

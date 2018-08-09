@@ -1,6 +1,7 @@
 """Django Model."""
 from __future__ import unicode_literals
 from django.utils.encoding import python_2_unicode_compatible
+from django.utils.encoding import smart_text
 from base64 import b64decode
 
 from django.core.exceptions import ValidationError

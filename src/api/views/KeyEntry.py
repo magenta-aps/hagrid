@@ -16,15 +16,14 @@ from rest_framework import serializers
 from rest_framework import viewsets
 from rest_framework import mixins
 
-import django_filters
-from django_filters.rest_framework import DjangoFilterBackend
-
+from django.contrib.auth.models import Group
 from api.models import (
     KeyEntry,
     Password,
     PublicKey
 )
 from api.views.Password import PasswordSerializer
+from api.views.Group import GroupSerializer
 from api.models.util import get_lock
 
 
@@ -40,13 +39,18 @@ class KeyEntrySerializer(serializers.HyperlinkedModelSerializer):
         read_only=True,
     )
 
-    owner = serializers.PrimaryKeyRelatedField(
-        queryset=Group.objects.all()
+    owner = GroupSerializer(
+        read_only=True,
+    )
+
+    owner_write = serializers.PrimaryKeyRelatedField(
+        queryset=Group.objects.all(),
+        write_only=True
     )
 
     passwords = PasswordSerializer(
+        many=True,
         read_only=True,
-        many=True
     )
 
     passwords_write = serializers.ListField(
@@ -118,12 +122,14 @@ class KeyEntrySerializer(serializers.HyperlinkedModelSerializer):
             )
 
     def create(self, validated_data):
-        owner = validated_data['owner']
+        owner = validated_data['owner_write']
         passwords = validated_data['passwords_write']
         signing_key = validated_data['signing_key']
+        del validated_data['owner_write']
         del validated_data['passwords_write']
         del validated_data['signing_key']
         del validated_data['user']
+        validated_data['owner'] = owner
         with transaction.atomic(savepoint=True):
             # Acquire lock on master key user
             lock = get_lock()

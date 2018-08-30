@@ -34,14 +34,14 @@ class Password(models.Model):
     key_entry = models.ForeignKey(
         KeyEntry,
         related_name='passwords',
-        on_delete=models.PROTECT
+        on_delete=models.CASCADE
     )
     """Key entry this pasword is associated to."""
 
     public_key = models.ForeignKey(
         'PublicKey',
         related_name="passwords",
-        on_delete=models.PROTECT
+        on_delete=models.CASCADE
     )
     """Public key this password was encrypted under."""
 

@@ -5,6 +5,8 @@ from django.contrib.auth.models import Group
 from django.contrib.auth import get_user_model
 from django.db import transaction
 
+from django_filters.rest_framework import DjangoFilterBackend
+
 from rest_framework.permissions import AllowAny
 from rest_framework import serializers
 from rest_framework import viewsets
@@ -82,3 +84,6 @@ class UserViewSet(mixins.CreateModelMixin,
 
     queryset = get_user_model().objects.all()
     serializer_class = UserSerializer
+
+    filter_backends = (DjangoFilterBackend,)
+    filter_fields = ('username',)

@@ -10,6 +10,8 @@ router.register(r'user',
                 views.UserViewSet,)
 router.register(r'group',
                 views.GroupViewSet,)
+router.register(r'group_associate',
+                views.GroupAssociateViewSet,)
 router.register(r'password',
                 views.PasswordViewSet,)
 router.register(r'keyentry',

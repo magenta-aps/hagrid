@@ -11,7 +11,6 @@ from rest_framework import serializers
 from rest_framework import viewsets
 from rest_framework import mixins
 
-import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
 
 from api.models import PublicKey
@@ -61,6 +60,9 @@ class PublicKeyViewSet(mixins.CreateModelMixin,
 
     queryset = PublicKey.objects.all().order_by('pk')
     serializer_class = PublicKeySerializer
+
+    filter_backends = (DjangoFilterBackend,)
+    filter_fields = ('user',)
 
     def perform_create(self, serializer):
         # Send from the current user

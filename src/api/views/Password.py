@@ -6,11 +6,10 @@ from __future__ import unicode_literals
 from django.forms import widgets
 from django.db.models import Q
 
+from django_filters.rest_framework import DjangoFilterBackend
+
 from rest_framework import serializers
 from rest_framework import viewsets
-
-import django_filters
-from django_filters.rest_framework import DjangoFilterBackend
 
 from api.models import Password
 from api.views.PublicKey import PublicKeySerializer
@@ -49,6 +48,9 @@ class PasswordViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Password.objects.none()
     serializer_class = PasswordSerializer
 
+    filter_backends = (DjangoFilterBackend,)
+    filter_fields = ('key_entry', 'public_key',)
+
     def get_queryset_raw(self):
         """Filter the queryset for non-admin users.
 
@@ -60,7 +62,7 @@ class PasswordViewSet(viewsets.ReadOnlyModelViewSet):
             return Password.objects.all()
         # If user, only show our own passwords
         return Password.objects.filter(
-            Q(user__pk=user.pk)
+            Q(public_key__user__pk=user.pk)
         )
 
     def get_queryset(self):

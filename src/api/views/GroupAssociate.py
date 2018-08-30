@@ -3,6 +3,7 @@ from __future__ import unicode_literals
 
 from django.db import transaction
 from django.contrib.auth.models import Group
+from django.contrib.auth import get_user_model
 
 from django_filters.rest_framework import DjangoFilterBackend
 
@@ -15,51 +16,50 @@ from api.models.util import get_lock
 
 
 # Serializers define the API representation.
-class GroupSerializer(serializers.HyperlinkedModelSerializer):
-    """Serializer to present groups."""
+class GroupAssociateSerializer(serializers.HyperlinkedModelSerializer):
+    """Serializer to associate users with groups."""
 
     class Meta:
         model = Group
-        exclude = ['permissions',]
+        fields = ['pk', 'user_pk',]
 
     pk = serializers.PrimaryKeyRelatedField(
         read_only=True,
     )
 
-    user_set = UserSerializer(
-        many=True,
-        read_only=True
+    user_pk = serializers.PrimaryKeyRelatedField(
+        queryset=get_user_model().objects.all(),
+        write_only=True,
     )
 
-    def create(self, validated_data):
-        user = self.context['request'].user
+    def update(self, instance, validated_data):
+        # TODO: Check that current user is allowed to add
         with transaction.atomic(savepoint=True):
             # Acquire lock on master key user
             lock = get_lock()
+            
+            user = validated_data['user_pk']
+            # # Get the provided user
+            # user = get_user_model().objects.get(pk=validated_data['user_pk'])
 
-            # Create a group
-            group = Group(
-                name=validated_data['name'],
-            )
-            group.full_clean()
-            group.save()
-            # Add the current user to the group
-            group.user_set.add(user)
+            # Check that no passwords exist on the group
+            if instance.key_entries.count() != 0:
+                raise ValueError("Cannot add to groups with passwords")
 
-            return group
+            # Add the provided user to the group
+            instance.user_set.add(user)
+
+            return instance
 
 
 # ViewSets define the view behavior.
-class GroupViewSet(mixins.CreateModelMixin,
-                  mixins.RetrieveModelMixin,
-                  mixins.ListModelMixin,
-                  viewsets.GenericViewSet):
-
+class GroupAssociateViewSet(mixins.UpdateModelMixin,
+                            viewsets.GenericViewSet):
+    """
+    """
+  
     queryset = Group.objects.all()
-    serializer_class = GroupSerializer
-
-    filter_backends = (DjangoFilterBackend,)
-    filter_fields = ('name',)
+    serializer_class = GroupAssociateSerializer
 
     def get_queryset_raw(self):
         """Filter the queryset for non-admin users.
@@ -78,9 +78,3 @@ class GroupViewSet(mixins.CreateModelMixin,
     def get_queryset(self):
         queryset = self.get_queryset_raw()
         return queryset.order_by('pk')
-
-    def perform_create(self, serializer):
-        # Send from the current user
-        serializer.save(
-            user=self.request.user,
-        )

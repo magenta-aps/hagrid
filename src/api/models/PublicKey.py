@@ -32,7 +32,10 @@ class PublicKey(models.Model):
     )
 
     # TODO: Consider unique=True for security?
-    key = models.CharField(max_length=util.MAX_LENGTH_NUMBER)
+    key = models.CharField(
+        max_length=util.MAX_LENGTH_NUMBER,
+        unique=True
+    )
 
     def as_key(self):
         return util.parse_key(self.key)
